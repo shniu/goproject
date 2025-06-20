@@ -2,6 +2,7 @@ package matching
 
 import (
 	"container/list"
+	"iter"
 
 	"github.com/shopspring/decimal"
 )
@@ -12,6 +13,7 @@ type OrderBook struct {
 }
 
 type Order struct {
+	// SeqId uint64 ?
 	// Order ID
 	ID        uint64
 	Side      string
@@ -109,7 +111,102 @@ func (q *AskQueue) Size() int {
 	return q.totalOrders
 }
 
+func (q *AskQueue) All() iter.Seq[Order] {
+	return func(yield func(Order) bool) {
+		for e := q.rootList.Front(); e != nil; e = e.Next() {
+			aprList := e.Value.(*list.List)
+			for e := aprList.Front(); e != nil; e = e.Next() {
+				order := e.Value.(Order)
+
+				if !yield(order) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// IterWith returns iterator that stops when condition is met
+func (q *AskQueue) IterWith(stop func(Order) bool) iter.Seq[Order] {
+	return func(yield func(Order) bool) {
+		for e := q.rootList.Front(); e != nil; e = e.Next() {
+			aprList := e.Value.(*list.List)
+			for orderE := aprList.Front(); orderE != nil; orderE = orderE.Next() {
+				order := orderE.Value.(Order)
+				if stop(order) {
+					return
+				}
+				if !yield(order) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func NewBidQueue() *BidQueue {
+	return &BidQueue{
+		rootList:    list.New(),
+		orderMap:    make(map[uint64]*list.Element),
+		totalOrders: 0,
+	}
+}
+
 // bid queue is a priority queue that sorts orders
 // by time in ascending order
 type BidQueue struct {
+	rootList    *list.List
+	orderMap    map[uint64]*list.Element
+	totalOrders uint64
+}
+
+// Add adds an order into the queue.
+func (q *BidQueue) Add(order Order) error {
+	e := q.rootList.PushBack(order)
+	q.orderMap[order.ID] = e
+	q.totalOrders++
+	return nil
+}
+
+// Remove removes an order from the queue.
+func (q *BidQueue) Remove(order Order) error {
+	e, ok := q.orderMap[order.ID]
+	if ok {
+		q.rootList.Remove(e)
+		delete(q.orderMap, order.ID)
+		q.totalOrders--
+	}
+	return nil
+}
+
+func (q *BidQueue) All() iter.Seq[Order] {
+	return func(yield func(Order) bool) {
+		for e := q.rootList.Front(); e != nil; e = e.Next() {
+			order := e.Value.(Order)
+			if !yield(order) {
+				return
+			}
+		}
+	}
+}
+
+func (q *BidQueue) IterWith(filter func(Order) bool) iter.Seq[Order] {
+	return func(yield func(Order) bool) {
+		for e := q.rootList.Front(); e != nil; e = e.Next() {
+			order := e.Value.(Order)
+			if filter(order) {
+				if !yield(order) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func (q *BidQueue) Len() int {
+	return q.rootList.Len()
+}
+
+func (q *BidQueue) Size() uint64 {
+	return q.totalOrders
 }
